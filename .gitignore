@@ -1,0 +1,22 @@
+# Database
+finance.db
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Testing
+.pytest_cache/
+
+# VS Code
+.vscode/
+
+# Operating system
+.DS_Store
+Thumbs.db
