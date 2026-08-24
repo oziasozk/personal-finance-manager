@@ -47,6 +47,7 @@ personal-finance-manager/
 ├── main.py
 ├── finance.db
 └── README.md
+```
 
 ## ⚙️ Installation
 
@@ -54,21 +55,30 @@ Clone the repository:
 
 ```bash
 git clone https://github.com/YOUR_USERNAME/personal-finance-manager.git
+```
 
 Enter the project directory:
+
 ```bash
 cd personal-finance-manager
+```
 
 Install pytest:
+
 ```bash
 python -m pip install pytest
 ```
+
 ## ▶️ Usage
+
 Run the application:
+
 ```bash
 python main.py
 ```
+
 The application provides the following menu:
+
 ```text
 1. Add transaction
 2. View transactions
