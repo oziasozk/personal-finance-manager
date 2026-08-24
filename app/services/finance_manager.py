@@ -1,5 +1,18 @@
-from app.models.transaction import Transaction
+from decimal import Decimal
+
 from app.database.database import get_connection
+from app.models.transaction import Transaction
+
+
+ZERO = Decimal("0")
+
+
+def decimal_to_storage(amount):
+    return format(Decimal(str(amount)), "f")
+
+
+def decimal_from_storage(amount):
+    return Decimal(str(amount))
 
 
 class FinanceManager:
@@ -17,7 +30,7 @@ class FinanceManager:
             VALUES (?, ?, ?, ?, ?)
         """, (
             transaction.type,
-            float(transaction.amount),
+            decimal_to_storage(transaction.amount),
             transaction.category,
             transaction.description,
             str(transaction.date)
@@ -36,7 +49,24 @@ class FinanceManager:
             ORDER BY id
         """)
 
-        transactions = cursor.fetchall()
+        transactions = [
+            (
+                transaction_id,
+                transaction_type,
+                decimal_from_storage(amount),
+                category,
+                description,
+                transaction_date
+            )
+            for (
+                transaction_id,
+                transaction_type,
+                amount,
+                category,
+                description,
+                transaction_date
+            ) in cursor.fetchall()
+        ]
         connection.close()
 
         if not transactions:
@@ -68,7 +98,7 @@ class FinanceManager:
             SET amount = ?, category = ?, description = ?
             WHERE id = ?
         """, (
-            float(amount),
+            decimal_to_storage(amount),
             category,
             description,
             transaction_id
@@ -104,33 +134,31 @@ class FinanceManager:
         cursor = connection.cursor()
 
         cursor.execute("""
-            SELECT
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN type = 'income'
-                            THEN amount
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ),
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN type = 'expense'
-                            THEN amount
-                            ELSE 0
-                        END
-                    ),
-                    0
-                )
+            SELECT type, amount
             FROM transactions
         """)
 
-        total_income, total_expense = cursor.fetchone()
+        transactions = cursor.fetchall()
 
         connection.close()
+
+        total_income = sum(
+            (
+                decimal_from_storage(amount)
+                for transaction_type, amount in transactions
+                if transaction_type == "income"
+            ),
+            ZERO
+        )
+
+        total_expense = sum(
+            (
+                decimal_from_storage(amount)
+                for transaction_type, amount in transactions
+                if transaction_type == "expense"
+            ),
+            ZERO
+        )
 
         balance = total_income - total_expense
 
@@ -141,18 +169,26 @@ class FinanceManager:
         cursor = connection.cursor()
 
         cursor.execute("""
-            SELECT category, SUM(amount)
+            SELECT category, amount
             FROM transactions
             WHERE type = 'expense'
-            GROUP BY category
-            ORDER BY SUM(amount) DESC
         """)
 
-        results = cursor.fetchall()
+        expenses_by_category = {}
+
+        for category, amount in cursor.fetchall():
+            expenses_by_category[category] = (
+                expenses_by_category.get(category, ZERO)
+                + decimal_from_storage(amount)
+            )
 
         connection.close()
 
-        return results
+        return sorted(
+            expenses_by_category.items(),
+            key=lambda expense: expense[1],
+            reverse=True
+        )
 
     def get_transactions_by_date(self, start_date, end_date):
         connection = get_connection()
@@ -165,7 +201,24 @@ class FinanceManager:
             ORDER BY date ASC
         """, (start_date, end_date))
 
-        transactions = cursor.fetchall()
+        transactions = [
+            (
+                transaction_id,
+                transaction_type,
+                decimal_from_storage(amount),
+                category,
+                description,
+                transaction_date
+            )
+            for (
+                transaction_id,
+                transaction_type,
+                amount,
+                category,
+                description,
+                transaction_date
+            ) in cursor.fetchall()
+        ]
 
         connection.close()
 
@@ -177,62 +230,25 @@ class FinanceManager:
 
         cursor.execute("""
             SELECT
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN type = 'income'
-                            THEN amount
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ),
-                COALESCE(
-                    SUM(
-                        CASE
-                            WHEN type = 'expense'
-                            THEN amount
-                            ELSE 0
-                        END
-                    ),
-                    0
-                ),
-                COUNT(
-                    CASE
-                        WHEN type = 'income'
-                        THEN 1
-                    END
-                ),
-                COUNT(
-                    CASE
-                        WHEN type = 'expense'
-                        THEN 1
-                    END
-                )
+                COUNT(CASE WHEN type = 'income' THEN 1 END),
+                COUNT(CASE WHEN type = 'expense' THEN 1 END)
             FROM transactions
         """)
 
-        (
-            total_income,
-            total_expense,
-            income_count,
-            expense_count
-        ) = cursor.fetchone()
-
-        cursor.execute("""
-            SELECT category, SUM(amount)
-            FROM transactions
-            WHERE type = 'expense'
-            GROUP BY category
-            ORDER BY SUM(amount) DESC
-            LIMIT 1
-        """)
-
-        top_expense = cursor.fetchone()
+        income_count, expense_count = cursor.fetchone()
 
         connection.close()
 
-        balance = total_income - total_expense
+        total_income, total_expense, balance = (
+            self.get_financial_summary()
+        )
+
+        expenses_by_category = self.get_expenses_by_category()
+        top_expense = (
+            expenses_by_category[0]
+            if expenses_by_category
+            else None
+        )
 
         return (
             total_income,

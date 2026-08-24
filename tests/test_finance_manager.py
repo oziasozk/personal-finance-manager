@@ -197,3 +197,88 @@ def test_delete_transaction(test_database):
     )
 
     assert remaining_transactions == []
+
+
+def test_decimal_amounts_are_stored_and_summed_exactly(
+    test_database
+):
+    manager = FinanceManager()
+
+    manager.add_transaction(
+        create_transaction(
+            "income",
+            "0.1",
+            "Savings",
+            "First deposit"
+        )
+    )
+
+    manager.add_transaction(
+        create_transaction(
+            "income",
+            "0.2",
+            "Savings",
+            "Second deposit"
+        )
+    )
+
+    total_income, total_expense, balance = (
+        manager.get_financial_summary()
+    )
+
+    connection = sqlite3.connect(test_database)
+    stored_amount, storage_type = connection.execute("""
+        SELECT amount, typeof(amount)
+        FROM transactions
+        WHERE description = 'First deposit'
+    """).fetchone()
+    connection.close()
+
+    assert stored_amount == "0.1"
+    assert storage_type == "text"
+    assert total_income == Decimal("0.3")
+    assert total_expense == Decimal("0")
+    assert balance == Decimal("0.3")
+
+
+def test_create_table_migrates_legacy_real_amounts(tmp_path):
+    database_path = tmp_path / "legacy_finance.db"
+    connection = sqlite3.connect(database_path)
+
+    connection.execute("""
+        CREATE TABLE transactions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            type TEXT NOT NULL,
+            amount REAL NOT NULL,
+            category TEXT NOT NULL,
+            description TEXT,
+            date TEXT NOT NULL
+        )
+    """)
+
+    connection.execute("""
+        INSERT INTO transactions
+        (type, amount, category, description, date)
+        VALUES (?, ?, ?, ?, ?)
+    """, (
+        "income",
+        1250.5,
+        "Salary",
+        "Legacy transaction",
+        str(date.today())
+    ))
+
+    connection.commit()
+    connection.close()
+
+    create_table(str(database_path))
+
+    connection = sqlite3.connect(database_path)
+    amount, storage_type = connection.execute("""
+        SELECT amount, typeof(amount)
+        FROM transactions
+    """).fetchone()
+    connection.close()
+
+    assert amount == "1250.5"
+    assert storage_type == "text"
