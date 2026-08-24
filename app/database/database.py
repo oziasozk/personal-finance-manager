@@ -1,16 +1,17 @@
 import sqlite3
+from pathlib import Path
 
 
 DATABASE_NAME = "finance.db"
 
 
-def get_connection():
-    connection = sqlite3.connect(DATABASE_NAME)
+def get_connection(database_name=DATABASE_NAME):
+    connection = sqlite3.connect(database_name)
     return connection
 
 
-def create_table():
-    connection = get_connection()
+def create_table(database_name=DATABASE_NAME):
+    connection = get_connection(database_name)
 
     cursor = connection.cursor()
 

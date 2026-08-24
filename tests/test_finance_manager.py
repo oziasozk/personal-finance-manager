@@ -1,6 +1,10 @@
+import sqlite3
 from datetime import date
 from decimal import Decimal
 
+import pytest
+
+from app.database.database import create_table
 from app.models.transaction import Transaction
 from app.services.finance_manager import FinanceManager
 
@@ -21,7 +25,31 @@ def create_transaction(
     )
 
 
-def test_add_transaction():
+@pytest.fixture
+def test_database(tmp_path, monkeypatch):
+    database_path = tmp_path / "test_finance.db"
+
+    import app.database.database as database
+    import app.services.finance_manager as finance_manager
+
+    monkeypatch.setattr(
+        database,
+        "DATABASE_NAME",
+        str(database_path)
+    )
+
+    monkeypatch.setattr(
+        finance_manager,
+        "get_connection",
+        lambda: sqlite3.connect(database_path)
+    )
+
+    create_table(str(database_path))
+
+    return database_path
+
+
+def test_add_transaction(test_database):
     manager = FinanceManager()
 
     transaction = create_transaction(
@@ -38,10 +66,13 @@ def test_add_transaction():
         date.today()
     )
 
-    assert len(transactions) >= 1
+    assert len(transactions) == 1
+    assert transactions[0][1] == "expense"
+    assert transactions[0][2] == 10000
+    assert transactions[0][3] == "Food"
 
 
-def test_financial_summary():
+def test_financial_summary(test_database):
     manager = FinanceManager()
 
     income = create_transaction(
@@ -65,12 +96,12 @@ def test_financial_summary():
         manager.get_financial_summary()
     )
 
-    assert total_income >= 200000
-    assert total_expense >= 50000
-    assert balance == total_income - total_expense
+    assert total_income == 200000
+    assert total_expense == 50000
+    assert balance == 150000
 
 
-def test_expenses_by_category():
+def test_expenses_by_category(test_database):
     manager = FinanceManager()
 
     expense1 = create_transaction(
@@ -92,13 +123,13 @@ def test_expenses_by_category():
 
     results = manager.get_expenses_by_category()
 
-    categories = [category for category, amount in results]
+    assert results == [
+        ("Food", 30000),
+        ("Transport", 10000)
+    ]
 
-    assert "Food" in categories
-    assert "Transport" in categories
 
-
-def test_update_transaction():
+def test_update_transaction(test_database):
     manager = FinanceManager()
 
     transaction = create_transaction(
@@ -115,7 +146,7 @@ def test_update_transaction():
         date.today()
     )
 
-    transaction_id = transactions[-1][0]
+    transaction_id = transactions[0][0]
 
     success = manager.update_transaction(
         transaction_id,
@@ -126,8 +157,18 @@ def test_update_transaction():
 
     assert success is True
 
+    updated_transactions = manager.get_transactions_by_date(
+        date.today(),
+        date.today()
+    )
 
-def test_delete_transaction():
+    assert len(updated_transactions) == 1
+    assert updated_transactions[0][2] == 8000
+    assert updated_transactions[0][3] == "Transport"
+    assert updated_transactions[0][4] == "Taxi"
+
+
+def test_delete_transaction(test_database):
     manager = FinanceManager()
 
     transaction = create_transaction(
@@ -144,10 +185,15 @@ def test_delete_transaction():
         date.today()
     )
 
-    transaction_id = transactions[-1][0]
+    transaction_id = transactions[0][0]
 
-    success = manager.delete_transaction(
-        transaction_id
-    )
+    success = manager.delete_transaction(transaction_id)
 
     assert success is True
+
+    remaining_transactions = manager.get_transactions_by_date(
+        date.today(),
+        date.today()
+    )
+
+    assert remaining_transactions == []
